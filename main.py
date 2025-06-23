@@ -12,8 +12,42 @@ class ImageViewer:
         self.offset_x = 0
         self.offset_y = 0
 
-        self.canvas = tk.Canvas(root)
+        self.canvas = tk.Canvas(root, background="black")
         self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.auto_fit = True
+
+        # Контейнер
+        self.zoom_control = tk.Frame(root, borderwidth=0)
+        self.zoom_control.place(x=10, y=10)
+
+        # Змінюємо ширину колонок:
+        self.zoom_control.grid_columnconfigure(0, weight=0)  # "-" — фіксована ширина
+        self.zoom_control.grid_columnconfigure(1, weight=1)  # "Zoom: 100%" — розтягується
+        self.zoom_control.grid_columnconfigure(2, weight=0)  # "+" — фіксована ширина
+        self.zoom_control.grid_columnconfigure(3, weight=0)
+        self.zoom_control.grid_rowconfigure(0, weight=1)
+
+        # Кнопка "-", мітка, кнопка "+"
+        self.zoom_out_btn = tk.Button(
+            self.zoom_control, text="-", borderwidth=0, command=self.zoom_out
+        )
+        self.zoom_label = tk.Label(
+            self.zoom_control, text="Zoom: 100%", padx=0, pady=0, anchor="center"
+        )
+        self.zoom_in_btn = tk.Button(
+            self.zoom_control, text="+", borderwidth=0, command=self.zoom_in
+        )
+        self.fit_btn = tk.Button(
+            self.zoom_control, text="🔁", borderwidth=0, command=self.fit_to_window
+        )
+        
+
+        # Вставка з однаковими відступами
+        self.zoom_out_btn.grid(row=0, column=0, sticky="ns", padx=(10, 5), pady=(6, 6), ipady=2)
+        self.zoom_label.grid(row=0, column=1, sticky="nsew", padx=(5, 5), pady=(6, 6), ipady=2)
+        self.zoom_in_btn.grid(row=0, column=2, sticky="ns", padx=(5, 10), pady=(6, 6), ipady=2)
+        self.fit_btn.grid(row=0, column=3, sticky="ns", padx=(5, 10), pady=(6, 6), ipady=2)
 
         self.canvas.bind("<Configure>", self.resize_to_fit)
         
@@ -23,6 +57,7 @@ class ImageViewer:
         
         self.canvas.bind("<ButtonPress-1>", self.on_drag_start)
         self.canvas.bind("<B1-Motion>", self.on_drag_move)
+
 
 
     def resize_to_fit(self, event=None):
@@ -40,7 +75,10 @@ class ImageViewer:
         self.offset_x = canvas_width // 2
         self.offset_y = canvas_height // 2
 
-        self.resize_and_draw()
+
+        # Виводимо панель керування
+        self.zoom_control.place(x=10, y=canvas_height - 50)
+
 
         self.resize_and_draw()
 
@@ -60,6 +98,9 @@ class ImageViewer:
 
         self.canvas.create_image(self.offset_x, self.offset_y, anchor=tk.CENTER, image=self.tk_image)
         self.canvas.image = self.tk_image
+
+        zoom_percent = int(self.zoom * 100)
+        self.zoom_label.config(text=f"Zoom: {zoom_percent}%")
     
         # Зберігаємо для подальших обчислень
         self.displayed_size = (new_width, new_height)
@@ -97,8 +138,10 @@ class ImageViewer:
         self.offset_x -= int(dx * (scale_change - 1))
         self.offset_y -= int(dy * (scale_change - 1))
 
-        # self.enforce_bounds()
+        self.enforce_bounds()
         self.resize_and_draw()
+
+        
 
 
     def on_drag_start(self, event):
@@ -122,17 +165,44 @@ class ImageViewer:
     def enforce_bounds(self):
         canvas_w = self.canvas.winfo_width()
         canvas_h = self.canvas.winfo_height()
-
+    
         img_w, img_h = self.displayed_size
+    
+        # Піврозміри
+        half_img_w = img_w // 2
+        half_img_h = img_h // 2
+    
+        # Обмеження X
+        if img_w > canvas_w:
+            min_x = canvas_w - half_img_w
+            max_x = half_img_w
+            self.offset_x = min(max(self.offset_x, min_x), max_x)
+        else:
+            self.offset_x = canvas_w // 2  # Центруємо
+    
+        # Обмеження Y
+        if img_h > canvas_h:
+            min_y = canvas_h - half_img_h
+            max_y = half_img_h
+            self.offset_y = min(max(self.offset_y, min_y), max_y)
+        else:
+            self.offset_y = canvas_h // 2  # Центруємо
 
-        min_x = canvas_w - img_w // 2
-        max_x = img_w // 2
 
-        min_y = canvas_h - img_h // 2
-        max_y = img_h // 2
+    def zoom_in(self):
+        self.set_zoom(self.zoom + 0.1)
 
-        self.offset_x = min(max(self.offset_x, min_x), max_x)
-        self.offset_y = min(max(self.offset_y, min_y), max_y)
+    def zoom_out(self):
+        self.set_zoom(self.zoom - 0.1)
+
+    def set_zoom(self, new_zoom):
+        self.zoom = max(0.1, min(new_zoom, 5.0))
+
+        self.enforce_bounds()
+        self.resize_and_draw()
+    
+    def fit_to_window(self):
+        self.resize_to_fit()
         
 
 
