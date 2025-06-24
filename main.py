@@ -1,5 +1,6 @@
 import tkinter as tk
 from PIL import Image, ImageTk
+from functools import lru_cache
 
 
 class ImageViewer:
@@ -15,7 +16,8 @@ class ImageViewer:
         self.canvas = tk.Canvas(root, background="black")
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        self.auto_fit = True
+        self._after_id = None
+
 
         # Контейнер
         self.zoom_control = tk.Frame(root, borderwidth=0)
@@ -83,65 +85,36 @@ class ImageViewer:
         self.resize_and_draw()
 
 
+    @lru_cache(maxsize=16)
+    def _get_resized_tk_image(self, zoom_percent: int):
+        # zoom_percent — ціле від 1 до 500 (для 5×)
+        w, h = self.original_image.size
+        new_w = w * zoom_percent // 100
+        new_h = h * zoom_percent // 100
+        img = self.original_image.resize((new_w, new_h), Image.LANCZOS)
+        return ImageTk.PhotoImage(img)
+
     def resize_and_draw(self, event=None):
-        img_width, img_height = self.original_image.size
-
-        # Розрахунок нового розміру
-        new_width = int(img_width * self.zoom)
-        new_height = int(img_height * self.zoom)
-
-        resized = self.original_image.resize((new_width, new_height), Image.LANCZOS)
-        self.tk_image = ImageTk.PhotoImage(resized)
-        
+        zoom_pct = int(self.zoom * 100)
+        self.tk_image = self._get_resized_tk_image(zoom_pct)
         self.canvas.delete("all")
-
-
         self.canvas.create_image(self.offset_x, self.offset_y, anchor=tk.CENTER, image=self.tk_image)
         self.canvas.image = self.tk_image
-
-        zoom_percent = int(self.zoom * 100)
-        self.zoom_label.config(text=f"Zoom: {zoom_percent}%")
-    
-        # Зберігаємо для подальших обчислень
-        self.displayed_size = (new_width, new_height)
+        self.zoom_label.config(text=f"Zoom: {zoom_pct}%")
+        self.displayed_size = (self.tk_image.width(), self.tk_image.height())
 
 
     def on_mouse_wheel(self, event):
-        canvas_x = self.canvas.canvasx(event.x)
-        canvas_y = self.canvas.canvasy(event.y)
-
-        dx = canvas_x - self.offset_x
-        dy = canvas_y - self.offset_y
-
-
-        # Cross-platform scroll
-        direction = 0
-        if hasattr(event, 'delta'):  # Windows/macOS
-            direction = 1 if event.delta > 0 else -1
-        elif event.num == 4:  # Linux scroll up
-            direction = 1
-        elif event.num == 5:  # Linux scroll down
-            direction = -1
-
-        # Змінюємо зум
-        zoom_step = 0.1
-        new_zoom = self.zoom + direction * zoom_step
-        new_zoom = max(0.1, min(new_zoom, 5.0))
-
-        if new_zoom == self.zoom:
-            return
-        
-        # Обчислюємо нове положення центру
-        scale_change = new_zoom / self.zoom
-        self.zoom = new_zoom
-
-        self.offset_x -= int(dx * (scale_change - 1))
-        self.offset_y -= int(dy * (scale_change - 1))
-
+        # оновлюємо self.zoom одразу, але відкладаємо малювання
+        direction = 1 if getattr(event, 'delta', 0) > 0 or event.num == 4 else -1
+        self.zoom = max(0.1, min(self.zoom + direction * 0.1, 5.0))
         self.enforce_bounds()
-        self.resize_and_draw()
 
-        
+        # скасовуємо попередній запланований виклик
+        if self._after_id:
+            self.canvas.after_cancel(self._after_id)
+        # сплануємо малювання через 50 мс
+        self._after_id = self.canvas.after(50, self.resize_and_draw)
 
 
     def on_drag_start(self, event):
